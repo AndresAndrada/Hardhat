@@ -1,0 +1,213 @@
+
+# Documentación del Contrato `NFTAuction`
+
+## 1. Introducción
+El contrato `NFTAuction` permite la creación y gestión de subastas para NFTs (tokens no fungibles) conforme al estándar ERC-721. Admite ofertas en tokens ERC-20 específicos o en ETH, y proporciona flexibilidad para configurar precios y períodos de subasta.
+
+### 1.2. Características Clave
+- Subastas para uno o varios NFTs.
+- Ofertas en tokens ERC-20 o en ETH.
+- Configuración de precios mínimos, precios de compra directa, y períodos de subasta.
+- Modificadores de acceso y control para diversas funciones.
+
+### 1.3. Autores
+Desarrollado por Avo Labs GmbH.
+
+## 2. Funciones Principales
+### 2.1. Configuración y Variables Globales
+#### 2.1.1. Constructor
+
+```solidity
+constructor(address owner)
+```
+**Descripción**: 
+Inicializa el contrato con el propietario y configura los valores por defecto para las subastas.
+
+**Parámetros de entrada**:
+- `owner` (address): Dirección del propietario del contrato.
+
+**Valores de salida**:
+- Ninguno.
+
+### 2.2. Funciones de Creación de Subastas
+#### 2.2.1. createDefaultNftAuction
+
+```solidity
+function createDefaultNftAuction(
+    address _nftContractAddress,
+    uint256 _tokenId,
+    address _erc20Token,
+    uint128 _minPrice,
+    uint128 _buyNowPrice,
+    address[] memory _feeRecipients,
+    uint32[] memory _feePercentages
+)
+```
+**Descripción**:
+Crea una subasta para un NFT usando los valores por defecto para el porcentaje de aumento de la oferta y el período de la subasta.
+
+**Parámetros de entrada**:
+- `_nftContractAddress` (address): Dirección del contrato ERC-721.
+- `_tokenId` (uint256): ID del token del NFT.
+- `_erc20Token` (address): Dirección del token ERC-20 aceptado como pago, o dirección cero para ETH.
+- `_minPrice` (uint128): Precio mínimo aceptado para la subasta.
+- `_buyNowPrice` (uint128): Precio de compra directa.
+- `_feeRecipients` (address[]): Lista de direcciones que recibirán comisiones.
+- `_feePercentages` (uint32[]): Lista de porcentajes correspondientes a cada destinatario de las comisiones.
+
+**Valores de salida**:
+- Ninguno. (Emite el evento `NftAuctionCreated`)
+
+### 2.3. Funciones de Participación en Subastas
+#### 2.3.1. makeBid
+
+```solidity
+function makeBid(
+    address _nftContractAddress,
+    uint256 _tokenId,
+    address _erc20Token,
+    uint128 _tokenAmount
+)
+```
+**Descripción**:
+Permite a los usuarios realizar una oferta en una subasta en curso.
+
+**Parámetros de entrada**:
+- `_nftContractAddress` (address): Dirección del contrato ERC-721.
+- `_tokenId` (uint256): ID del token del NFT.
+- `_erc20Token` (address): Dirección del token ERC-20 con el que se realiza la oferta.
+- `_tokenAmount` (uint128): Monto del token ERC-20 ofrecido.
+
+**Valores de salida**:
+- Ninguno. (Emite el evento `BidMade`)
+
+#### 2.3.2. makeCustomBid
+
+```solidity
+function makeCustomBid(
+    address _nftContractAddress,
+    uint256 _tokenId,
+    address _erc20Token,
+    uint128 _tokenAmount,
+    address _nftRecipient
+)
+```
+**Descripción**:
+Permite realizar una oferta especificando una dirección diferente como destinatario del NFT en caso de que la oferta sea exitosa.
+
+**Parámetros de entrada**:
+- `_nftContractAddress` (address): Dirección del contrato ERC-721.
+- `_tokenId` (uint256): ID del token del NFT.
+- `_erc20Token` (address): Dirección del token ERC-20 con el que se realiza la oferta.
+- `_tokenAmount` (uint128): Monto del token ERC-20 ofrecido.
+- `_nftRecipient` (address): Dirección que recibirá el NFT si la oferta es exitosa.
+
+**Valores de salida**:
+- Ninguno. (Emite el evento `BidMade`)
+
+### 2.4. Funciones de Finalización y Retiro de Subastas
+#### 2.4.1. settleAuction
+
+```solidity
+function settleAuction(address _nftContractAddress, uint256 _tokenId)
+```
+**Descripción**:
+Permite al vendedor finalizar la subasta, transferir el NFT al ganador, y pagar las comisiones correspondientes.
+
+**Parámetros de entrada**:
+- `_nftContractAddress` (address): Dirección del contrato ERC-721.
+- `_tokenId` (uint256): ID del token del NFT.
+
+**Valores de salida**:
+- Ninguno. (Emite el evento `AuctionSettled`)
+
+#### 2.4.2. withdrawAuction
+
+```solidity
+function withdrawAuction(address _nftContractAddress, uint256 _tokenId)
+```
+**Descripción**:
+Permite al vendedor retirar la subasta antes de que se realicen ofertas.
+
+**Parámetros de entrada**:
+- `_nftContractAddress` (address): Dirección del contrato ERC-721.
+- `_tokenId` (uint256): ID del token del NFT.
+
+**Valores de salida**:
+- Ninguno. (Emite el evento `AuctionWithdrawn`)
+
+#### 2.4.3. withdrawBid
+
+```solidity
+function withdrawBid(address _nftContractAddress, uint256 _tokenId)
+```
+**Descripción**:
+Permite a un postor retirar su oferta si la oferta mínima no ha sido alcanzada.
+
+**Parámetros de entrada**:
+- `_nftContractAddress` (address): Dirección del contrato ERC-721.
+- `_tokenId` (uint256): ID del token del NFT.
+
+**Valores de salida**:
+- Ninguno. (Emite el evento `BidWithdrawn`)
+
+### 2.5. Funciones de Actualización de Subastas
+#### 2.5.1. updateWhitelistedBuyer
+
+```solidity
+function updateWhitelistedBuyer(
+    address _nftContractAddress,
+    uint256 _tokenId,
+    address _newWhitelistedBuyer
+)
+```
+**Descripción**:
+Permite al vendedor actualizar la dirección del comprador preaprobado (whitelisted buyer) para una venta directa.
+
+**Parámetros de entrada**:
+- `_nftContractAddress` (address): Dirección del contrato ERC-721.
+- `_tokenId` (uint256): ID del token del NFT.
+- `_newWhitelistedBuyer` (address): Nueva dirección del comprador preaprobado.
+
+**Valores de salida**:
+- Ninguno. (Emite el evento `WhitelistedBuyerUpdated`)
+
+#### 2.5.2. updateMinimumPrice
+
+```solidity
+function updateMinimumPrice(
+    address _nftContractAddress,
+    uint256 _tokenId,
+    uint128 _newMinPrice
+)
+```
+**Descripción**:
+Permite al vendedor actualizar el precio mínimo de la subasta antes de que se realicen ofertas.
+
+**Parámetros de entrada**:
+- `_nftContractAddress` (address): Dirección del contrato ERC-721.
+- `_tokenId` (uint256): ID del token del NFT.
+- `_newMinPrice` (uint128): Nuevo precio mínimo para la subasta.
+
+**Valores de salida**:
+- Ninguno. (Emite el evento `MinimumPriceUpdated`)
+
+#### 2.5.3. updateBuyNowPrice
+
+```solidity
+function updateBuyNowPrice(
+    address _nftContractAddress,
+    uint256 _tokenId,
+    uint128 _newBuyNowPrice
+)
+```
+**Descripción**:
+Permite al vendedor actualizar el precio de compra directa de la subasta.
+
+**Parámetros de entrada**:
+- `_nftContractAddress` (address): Dirección del contrato ERC-721.
+- `_tokenId` (uint256): ID del token del NFT.
+- `_newBuyNowPrice` (uint128): Nuevo precio de compra directa para la subasta.
+
+**Valores de salida**:
+- Ninguno. (Emite el evento `BuyNowPriceUpdated`)
