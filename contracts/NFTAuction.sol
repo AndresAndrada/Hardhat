@@ -208,13 +208,12 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
         _;
     }
     modifier onlyNftSeller(address _nftContractAddress, uint256 _tokenId) {
-        require(
-            msg.sender ==
-                nftContractAuctions[_nftContractAddress][_tokenId].nftSeller,
-            "Only nft seller"
-        );
-        _;
-    }
+    require(
+        msg.sender == nftContractAuctions[_nftContractAddress][_tokenId].nftSeller,
+        "Only nft seller"
+    );
+    _;
+}
     /*
      * The bid amount was either equal the buyNowPrice or it must be higher than the previous
      * bid by the specified bid increase percentage.
@@ -262,7 +261,8 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
 
     modifier minimumBidNotMade(address _nftContractAddress, uint256 _tokenId) {
         require(
-            !_isMinimumBidMade(_nftContractAddress, _tokenId),
+            !_isMinimumBidMade(_nftContractAddress, _tokenId) || 
+            msg.sender == nftContractAuctions[_nftContractAddress][_tokenId].nftHighestBidder,
             "The auction has a valid bid made"
         );
         _;
@@ -784,7 +784,7 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
     }
 
     /**********************************/
-    /*╔══════════════════════════════╗
+    /*╔═════════════════════════════╗
       ║             END              ║
       ║       AUCTION CREATION       ║
       ╚══════════════════════════════╝*/
@@ -1263,17 +1263,46 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
       ╚══════════════════════════════╝*/
     /**********************************/
 
-    /*╔══════════════════════════════╗
+    /*╔═════════════════════════════╗
       ║      SETTLE & WITHDRAW       ║
       ╚══════════════════════════════╝*/
-    function settleAuction(address _nftContractAddress, uint256 _tokenId)
-        external
-        isAuctionOver(_nftContractAddress, _tokenId)
-    {
+  function settleAuction(
+    address _nftContractAddress,
+    uint256 _tokenId
+) external {
+    Auction storage auction = nftContractAuctions[_nftContractAddress][_tokenId];
+    
+    // Verificar que el llamante es el vendedor
+    require(
+        msg.sender == auction.nftSeller,
+        "Only nft seller"
+    );
+    
+    // Verificar que la subasta haya terminado
+    require(
+        auction.auctionEnd > 0 && block.timestamp >= auction.auctionEnd,
+        "Auction is not yet over"
+    );
+    
+    // Verificar que haya una oferta válida
+    require(
+        auction.nftHighestBid >= auction.minPrice && 
+        auction.nftHighestBidder != address(0),
+        "No valid bid made"
+    );
+    
+    // Solo proceder con la transferencia si el llamante es el vendedor
+    if (msg.sender == auction.nftSeller) {
+        _transferNftToAuctionContract(_nftContractAddress, _tokenId);
         _transferNftAndPaySeller(_nftContractAddress, _tokenId);
-        emit AuctionSettled(_nftContractAddress, _tokenId, msg.sender);
+        
+        emit AuctionSettled(
+            _nftContractAddress,
+            _tokenId,
+            msg.sender
+        );
     }
-
+}
     function withdrawAuction(address _nftContractAddress, uint256 _tokenId)
         external
     {
@@ -1290,14 +1319,10 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
         external
         minimumBidNotMade(_nftContractAddress, _tokenId)
     {
-        address nftHighestBidder = nftContractAuctions[_nftContractAddress][
-            _tokenId
-        ].nftHighestBidder;
+        address nftHighestBidder = nftContractAuctions[_nftContractAddress][_tokenId].nftHighestBidder;
         require(msg.sender == nftHighestBidder, "Cannot withdraw funds");
 
-        uint128 nftHighestBid = nftContractAuctions[_nftContractAddress][
-            _tokenId
-        ].nftHighestBid;
+        uint128 nftHighestBid = nftContractAuctions[_nftContractAddress][_tokenId].nftHighestBid;
         _resetBids(_nftContractAddress, _tokenId);
 
         _payout(_nftContractAddress, _tokenId, nftHighestBidder, nftHighestBid);
@@ -1530,4 +1555,23 @@ function updateDefaultAuctionBidPeriod(uint32 _newPeriod)
       ╚══════════════════════════════╝*/
     /**********************************/
 
+    // Agregar estas funciones auxiliares
+    function _isAuctionOver(address _nftContractAddress, uint256 _tokenId) 
+        internal 
+        view 
+        returns (bool) 
+    {
+        uint64 auctionEnd = nftContractAuctions[_nftContractAddress][_tokenId].auctionEnd;
+        return auctionEnd != 0 && block.timestamp >= auctionEnd;
+    }
+
+    function _hasValidBid(address _nftContractAddress, uint256 _tokenId)
+        internal
+        view
+        returns (bool)
+    {
+        Auction storage auction = nftContractAuctions[_nftContractAddress][_tokenId];
+        return auction.nftHighestBid >= auction.minPrice && 
+               auction.nftHighestBidder != address(0);
+    }
 }

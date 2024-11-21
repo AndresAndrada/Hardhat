@@ -28,6 +28,9 @@ describe("MyERC721 and NFTAuction", function () {
     it("Should set the correct owner for NFTAuction", async function () {
       const { nftAuction, nftSeller } = await loadFixture(deployContractsFixture);
       const contractOwner = await nftAuction.read.owner();
+      console.log("contractOwner.toLowerCase() "+contractOwner.toLowerCase())
+      console.log("nftSeller.account.address.toLowerCase()"+nftSeller.account.address.toLowerCase())
+
       expect(contractOwner.toLowerCase()).to.equal(nftSeller.account.address.toLowerCase());
     });
     
@@ -328,5 +331,203 @@ it("Should handle concurrent bids correctly", async function () {
   expect(highestBid[1].toString()).to.equal(bidAmount2.toString());
 });
     
+
+    it("Should allow successful withdrawBid in different scenarios", async function () {
+      const { nftAuction, myERC721, myToken, nftSeller, bidder, minter } = await loadFixture(deployContractsFixture);
+      const tokenId = 0n;
+
+      // Setup inicial
+      const myERC721AsMinter = await hre.viem.getContractAt("MyERC721", myERC721.address, { client: { wallet: minter } });
+      await myERC721AsMinter.write.safeMint([nftSeller.account.address, "ipfs://token-uri"]);
+      await myERC721.write.approve([nftAuction.address, tokenId], { account: nftSeller.account.address });
+
+      // Crear subasta con precio mínimo bajo
+      const initialMinPrice = hre.ethers.parseUnits("1", "ether");
+      await nftAuction.write.createNewNftAuction(
+        [myERC721.address, tokenId, myToken.address, initialMinPrice, 0n, 86400n, 100n, [], []],
+        { account: nftSeller.account.address }
+      );
+
+      // Hacer una oferta válida inicial
+      const bidAmount = hre.ethers.parseUnits("2", "ether");
+      await myToken.write.mint([bidder.account.address, bidAmount], { account: minter.account.address });
+      await myToken.write.approve([nftAuction.address, bidAmount], { account: bidder.account.address });
+      
+      await nftAuction.write.makeBid([myERC721.address, tokenId, myToken.address, bidAmount], {
+        account: bidder.account.address,
+      });
+
+      // Verificar balance antes del retiro
+      const balanceAntes = await myToken.read.balanceOf([bidder.account.address]);
+
+      // Retirar la oferta
+      await nftAuction.write.withdrawBid([myERC721.address, tokenId], { account: bidder.account.address });
+
+      // Verificar que los tokens fueron devueltos
+      const balanceDespues = await myToken.read.balanceOf([bidder.account.address]);
+      expect(balanceDespues).to.equal(balanceAntes + bidAmount);
+
+      // Verificar que la oferta más alta se reinició
+      const finalBidState = await nftAuction.read.getHighestBid([myERC721.address, tokenId]);
+      expect(finalBidState[0]).to.equal(ZeroAddress);
+      expect(finalBidState[1]).to.equal(0n);
+
+      // Intentar retirar de nuevo debería fallar
+      await expect(
+        nftAuction.write.withdrawBid([myERC721.address, tokenId], { account: bidder.account.address })
+      ).to.be.rejectedWith("Cannot withdraw funds");
+    });
+
+    it("Should prevent unauthorized bid withdrawals", async function () {
+      const { nftAuction, myERC721, myToken, nftSeller, bidder, otherAccount, minter } = await loadFixture(deployContractsFixture);
+      const tokenId = 0n;
+
+      // Setup inicial
+      const myERC721AsMinter = await hre.viem.getContractAt("MyERC721", myERC721.address, { client: { wallet: minter } });
+      await myERC721AsMinter.write.safeMint([nftSeller.account.address, "ipfs://token-uri"]);
+      await myERC721.write.approve([nftAuction.address, tokenId], { account: nftSeller.account.address });
+
+      // Crear subasta
+      const minPrice = hre.ethers.parseUnits("1", "ether");
+      await nftAuction.write.createNewNftAuction(
+        [myERC721.address, tokenId, myToken.address, minPrice, 0n, 86400n, 100n, [], []],
+        { account: nftSeller.account.address }
+      );
+
+      // Hacer una oferta válida
+      const bidAmount = hre.ethers.parseUnits("2", "ether");
+      await myToken.write.mint([bidder.account.address, bidAmount], { account: minter.account.address });
+      await myToken.write.approve([nftAuction.address, bidAmount], { account: bidder.account.address });
+      
+      await nftAuction.write.makeBid([myERC721.address, tokenId, myToken.address, bidAmount], {
+        account: bidder.account.address,
+      });
+
+      // Intentar retirar la oferta desde otra cuenta
+      await expect(
+        nftAuction.write.withdrawBid([myERC721.address, tokenId], { account: otherAccount.account.address })
+      ).to.be.rejectedWith("The auction has a valid bid made");
+    });
+
+    it("Should prevent NFT theft attempts", async function () {
+      const { nftAuction, myERC721, nftSeller, otherAccount, minter } = await loadFixture(deployContractsFixture);
+      const tokenId = 0n;
+
+      // Setup inicial - Mint el NFT al vendedor
+      const myERC721AsMinter = await hre.viem.getContractAt("MyERC721", myERC721.address, { client: { wallet: minter } });
+      await myERC721AsMinter.write.safeMint([nftSeller.account.address, "ipfs://token-uri"]);
+
+      // Verificar propiedad inicial
+      const ownerBeforeAttempt = await myERC721.read.ownerOf([tokenId]);
+      expect(ownerBeforeAttempt.toLowerCase()).to.equal(nftSeller.account.address.toLowerCase());
+
+      // Intentar crear una subasta sin ser el dueño
+      const minPrice = hre.ethers.parseUnits("1", "ether");
+      try {
+        await nftAuction.write.createNewNftAuction(
+          [myERC721.address, tokenId, ZeroAddress, minPrice, 0n, 86400n, 100n, [], []],
+          { account: otherAccount.account.address }
+        );
+        expect.fail("Debería haber fallado con 'Not owner of NFT'");
+      } catch (error: any) {
+        expect(error.message).to.include("Not owner of NFT");
+      }
+
+      // Verificar que la propiedad no ha cambiado
+      const ownerAfterAttempt = await myERC721.read.ownerOf([tokenId]);
+      expect(ownerAfterAttempt.toLowerCase()).to.equal(nftSeller.account.address.toLowerCase());
+    });
+
+    it("Should prevent manipulation of auction parameters by non-owners", async function () {
+      const { nftAuction, myERC721, myToken, nftSeller, otherAccount, minter } = await loadFixture(deployContractsFixture);
+      const tokenId = 0n;
+
+      // Setup inicial
+      const myERC721AsMinter = await hre.viem.getContractAt("MyERC721", myERC721.address, { client: { wallet: minter } });
+      await myERC721AsMinter.write.safeMint([nftSeller.account.address, "ipfs://token-uri"]);
+      await myERC721.write.approve([nftAuction.address, tokenId], { account: nftSeller.account.address });
+
+      // Crear subasta
+      const minPrice = hre.ethers.parseUnits("1", "ether");
+      await nftAuction.write.createNewNftAuction(
+        [myERC721.address, tokenId, myToken.address, minPrice, 0n, 86400n, 100n, [], []],
+        { account: nftSeller.account.address }
+      );
+
+      // Intentar actualizar precio mínimo sin ser el vendedor
+      const newMinPrice = hre.ethers.parseUnits("2", "ether");
+      await expect(
+        nftAuction.write.updateMinimumPrice([myERC721.address, tokenId, newMinPrice], { account: otherAccount.account.address })
+      ).to.be.rejectedWith("Only nft seller");
+
+      // Intentar actualizar precio de compra inmediata sin ser el vendedor
+      await expect(
+        nftAuction.write.updateBuyNowPrice([myERC721.address, tokenId, newMinPrice], { account: otherAccount.account.address })
+      ).to.be.rejectedWith("Only nft seller");
+    });
+    it("Should prevent unauthorized settlement of auctions", async function () {
+      const { nftAuction, myERC721, myToken, nftSeller, bidder, otherAccount, minter } = await loadFixture(deployContractsFixture);
+      const tokenId = 0n;
+    
+      // Setup inicial
+      const myERC721AsMinter = await hre.viem.getContractAt("MyERC721", myERC721.address, { client: { wallet: minter } });
+      await myERC721AsMinter.write.safeMint([nftSeller.account.address, "ipfs://token-uri"]);
+      await myERC721.write.approve([nftAuction.address, tokenId], { account: nftSeller.account.address });
+    
+      // Crear subasta
+      const minPrice = hre.ethers.parseUnits("1", "ether");
+      await nftAuction.write.createNewNftAuction(
+        [myERC721.address, tokenId, myToken.address, minPrice, 0n, 86400n, 100n, [], []],
+        { account: nftSeller.account.address }
+      );
+    
+      // Hacer una oferta válida
+      const bidAmount = hre.ethers.parseUnits("2", "ether");
+      await myToken.write.mint([bidder.account.address, bidAmount], { account: minter.account.address });
+      await myToken.write.approve([nftAuction.address, bidAmount], { account: bidder.account.address });
+      await nftAuction.write.makeBid(
+        [myERC721.address, tokenId, myToken.address, bidAmount],
+        { account: bidder.account.address }
+      );
+    
+      // Avanzar el tiempo para que termine la subasta
+      await time.increase(86401n);
+    
+      // Intentar liquidar desde una cuenta no autorizada
+      await expect(
+        nftAuction.write.settleAuction(
+            [myERC721.address, tokenId],
+            { account: otherAccount.account.address }
+        )
+    ).to.be.rejectedWith("Only nft seller");
+    
+      // No necesitamos verificar el propietario si esperamos que la transacción falle
+    });
+
+    it("Should prevent settling auction with no bids", async function () {
+      const { nftAuction, myERC721, nftSeller, minter } = await loadFixture(deployContractsFixture);
+      const tokenId = 0n;
+
+      // Setup inicial
+      const myERC721AsMinter = await hre.viem.getContractAt("MyERC721", myERC721.address, { client: { wallet: minter } });
+      await myERC721AsMinter.write.safeMint([nftSeller.account.address, "ipfs://token-uri"]);
+      await myERC721.write.approve([nftAuction.address, tokenId], { account: nftSeller.account.address });
+
+      // Crear subasta
+      const minPrice = hre.ethers.parseUnits("1", "ether");
+      await nftAuction.write.createNewNftAuction(
+        [myERC721.address, tokenId, ZeroAddress, minPrice, 0n, 86400n, 100n, [], []],
+        { account: nftSeller.account.address }
+      );
+
+      // Avanzar el tiempo
+      await time.increase(86401n);
+
+      // Intentar liquidar sin ofertas
+      await expect(
+        nftAuction.write.settleAuction([myERC721.address, tokenId], { account: nftSeller.account.address })
+      ).to.be.rejectedWith("Auction is not yet over");
+    });
+
   });
 });

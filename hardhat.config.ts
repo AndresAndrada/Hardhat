@@ -15,10 +15,11 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
-    sepolia: {
-      url: `https://base-sepolia.infura.io/v3/5c17da17578a413195e387c9a5cdcfce`,
-      accounts: [`b890d957ccd00d189e7e51173cd5a0cdbf6659f6a30e502d1a978e279fc64e4e`]
-    }
+    base: {
+      url: "https://base-mainnet.infura.io/v3/91f9b679e13441bfb45630d71e380a3b",
+      accounts: [`60d6ed3ecd20abb2a54ff4519717c6ddfab1ad1f46cddb0f6dd6cf98a3a1afa4`],
+      chainId: 8453
+    },
   },
 };
 
