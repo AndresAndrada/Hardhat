@@ -28,8 +28,6 @@ describe("MyERC721 and NFTAuction", function () {
     it("Should set the correct owner for NFTAuction", async function () {
       const { nftAuction, nftSeller } = await loadFixture(deployContractsFixture);
       const contractOwner = await nftAuction.read.owner();
-      console.log("contractOwner.toLowerCase() "+contractOwner.toLowerCase())
-      console.log("nftSeller.account.address.toLowerCase()"+nftSeller.account.address.toLowerCase())
 
       expect(contractOwner.toLowerCase()).to.equal(nftSeller.account.address.toLowerCase());
     });
@@ -529,5 +527,61 @@ it("Should handle concurrent bids correctly", async function () {
       ).to.be.rejectedWith("Auction is not yet over");
     });
 
+    // Mover los otros tests de settle auction aquí (líneas 466-528)
+    it("Should correctly settle auction with valid bid", async function () {
+      const { nftAuction, myERC721, myToken, nftSeller, bidder, minter } = await loadFixture(deployContractsFixture);
+      const tokenId = 0n;
+    
+      // Setup inicial
+      const myERC721AsMinter = await hre.viem.getContractAt("MyERC721", myERC721.address, { client: { wallet: minter } });
+      await myERC721AsMinter.write.safeMint([nftSeller.account.address, "ipfs://token-uri"]);
+      await myERC721.write.approve([nftAuction.address, tokenId], { account: nftSeller.account.address });
+    
+      // Crear subasta
+      const minPrice = hre.ethers.parseUnits("1", "ether");
+      await nftAuction.write.createNewNftAuction(
+        [myERC721.address, tokenId, myToken.address, minPrice, 0n, 86400n, 100n, [], []],
+        { account: nftSeller.account.address }
+      );
+    
+      // Hacer una oferta válida
+      const bidAmount = hre.ethers.parseUnits("2", "ether");
+      await myToken.write.mint([bidder.account.address, bidAmount], { account: minter.account.address });
+      await myToken.write.approve([nftAuction.address, bidAmount], { account: bidder.account.address });
+      
+      await nftAuction.write.makeBid(
+        [myERC721.address, tokenId, myToken.address, bidAmount],
+        { account: bidder.account.address }
+      );
+    
+      // Guardar balances iniciales
+      const sellerInitialBalance = await myToken.read.balanceOf([nftSeller.account.address]);
+      
+      // Avanzar el tiempo para que termine la subasta
+      await time.increase(86401n);
+    
+      // Liquidar la subasta
+      await nftAuction.write.settleAuction(
+        [myERC721.address, tokenId],
+        { account: nftSeller.account.address }
+      );
+    
+      // Verificaciones
+      const highestBid = await nftAuction.read.getHighestBid([myERC721.address, tokenId]);
+      expect(highestBid[0]).to.equal(ZeroAddress);
+      expect(highestBid[1]).to.equal(0n);
+      
+      const newOwner = await myERC721.read.ownerOf([tokenId]);
+      expect(newOwner.toLowerCase()).to.equal(bidder.account.address.toLowerCase());
+    
+      const sellerFinalBalance = await myToken.read.balanceOf([nftSeller.account.address]);
+      expect(sellerFinalBalance).to.equal(sellerInitialBalance + bidAmount);
+    
+      // Verificar que no se puede liquidar dos veces
+      await expect(
+        nftAuction.write.settleAuction([myERC721.address, tokenId], { account: nftSeller.account.address })
+      ).to.be.rejectedWith("Only nft seller");  // Cambiar el mensaje de error esperado
+    });
   });
+
 });
