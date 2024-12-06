@@ -751,37 +751,40 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
             _feePercentages
         );
     }
+function createNewNftAuction(
+    address _nftContractAddress,
+    uint256 _tokenId,
+    address _erc20Token,
+    uint128 _minPrice,
+    uint128 _buyNowPrice,
+    uint32 _auctionBidPeriod,
+    uint32 _bidIncreasePercentage,
+    address[] memory _feeRecipients,
+    uint32[] memory _feePercentages
+)
+    external
+    isAuctionNotStartedByOwner(_nftContractAddress, _tokenId)
+    priceGreaterThanZero(_minPrice)
+    increasePercentageAboveMinimum(_bidIncreasePercentage)
+{
+    nftContractAuctions[_nftContractAddress][_tokenId]
+        .auctionBidPeriod = _auctionBidPeriod;
+    nftContractAuctions[_nftContractAddress][_tokenId]
+        .bidIncreasePercentage = _bidIncreasePercentage;
 
-    function createNewNftAuction(
-        address _nftContractAddress,
-        uint256 _tokenId,
-        address _erc20Token,
-        uint128 _minPrice,
-        uint128 _buyNowPrice,
-        uint32 _auctionBidPeriod, //this is the time that the auction lasts until another bid occurs
-        uint32 _bidIncreasePercentage,
-        address[] memory _feeRecipients,
-        uint32[] memory _feePercentages
-    )
-        external
-        isAuctionNotStartedByOwner(_nftContractAddress, _tokenId)
-        priceGreaterThanZero(_minPrice)
-        increasePercentageAboveMinimum(_bidIncreasePercentage)
-    {
-        nftContractAuctions[_nftContractAddress][_tokenId]
-            .auctionBidPeriod = _auctionBidPeriod;
-        nftContractAuctions[_nftContractAddress][_tokenId]
-            .bidIncreasePercentage = _bidIncreasePercentage;
-        _createNewNftAuction(
-            _nftContractAddress,
-            _tokenId,
-            _erc20Token,
-            _minPrice,
-            _buyNowPrice,
-            _feeRecipients,
-            _feePercentages
-        );
-    }
+    // Establecer el tiempo de finalización de la subasta
+    nftContractAuctions[_nftContractAddress][_tokenId].auctionEnd = uint64(block.timestamp) + _auctionBidPeriod;
+
+    _createNewNftAuction(
+        _nftContractAddress,
+        _tokenId,
+        _erc20Token,
+        _minPrice,
+        _buyNowPrice,
+        _feeRecipients,
+        _feePercentages
+    );
+}
 
     /**********************************/
     /*╔═════════════════════════════╗
@@ -1459,18 +1462,27 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
      * If the transfer of a bid has failed, allow the recipient to reclaim their amount later.
      */
     function withdrawAllFailedCredits() external {
-        uint256 amount = failedTransferCredits[msg.sender];
+    // Obtener la cantidad de créditos fallidos para el remitente
+    uint256 amount = failedTransferCredits[msg.sender];
 
-        require(amount != 0, "no credits to withdraw");
+    // Verificar que haya créditos para retirar
+    require(amount != 0, "no credits to withdraw");
 
-        failedTransferCredits[msg.sender] = 0;
+    // Restablecer los créditos fallidos a cero antes de realizar el retiro
+    failedTransferCredits[msg.sender] = 0;
 
-        (bool successfulWithdraw, ) = msg.sender.call{
-            value: amount,
-            gas: 20000
-        }("");
-        require(successfulWithdraw, "withdraw failed");
-    }
+    // Intentar transferir la cantidad al remitente
+    (bool successfulWithdraw, ) = msg.sender.call{
+        value: amount,
+        gas: 20000
+    }("");
+
+    // Verificar que la transferencia fue exitosa
+    require(successfulWithdraw, "withdraw failed");
+
+    // Emitir el evento de retiro
+    emit Withdrawal(msg.sender, amount);
+}
 
     function getHighestBid(
         address _nftContractAddress,

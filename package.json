@@ -32,6 +32,7 @@
     "@types/chai-as-promised": "^7.1.8",
     "@uniswap/v2-periphery": "^1.1.0-beta.0",
     "@uniswap/v3-periphery": "^1.4.4",
+    "chai-eventemitter": "^1.1.1",
     "dotenv": "^16.4.5",
     "hardhat-gas-reporter": "^1.0.10",
     "solidity-coverage": "^0.8.12",
