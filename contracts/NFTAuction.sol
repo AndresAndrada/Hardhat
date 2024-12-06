@@ -145,7 +145,7 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
     /**********************************/
     /*╔═════════════════════════════╗
       ║          MODIFIERS          ║
-      ╚═════════════════════════════╝*/
+      ╚═════════════���═══════════════╝*/
 
     modifier isAuctionNotStartedByOwner(
         address _nftContractAddress,
@@ -186,16 +186,10 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
     /*
      * The minimum price must be 80% of the buyNowPrice(if set).
      */
-    modifier minPriceDoesNotExceedLimit(
-        uint128 _buyNowPrice,
-        uint128 _minPrice
-    ) {
-        require(
-            _buyNowPrice == 0 ||
-                _getPortionOfBid(_buyNowPrice, maximumMinPricePercentage) >=
-                _minPrice,
-            "MinPrice > 80% of buyNowPrice"
-        );
+    modifier minPriceDoesNotExceedLimit(uint128 _buyNowPrice, uint128 _minPrice) {
+        if (_buyNowPrice > 0) {
+            require(_minPrice * 100 <= _buyNowPrice * 80, "MinPrice > 80% of buyNowPrice");
+        }
         _;
     }
 
@@ -609,7 +603,7 @@ event DefaultAuctionBidPeriodUpdated(uint32 newPeriod);
     /*╔══════════════════════════════╗
       ║             END              ║
       ║    DEFAULT GETTER FUNCTIONS  ║
-      ╚══════════════════════════════╝*/
+      ╚════���═════════════════════════╝*/
     /**********************************/
 
     /*╔══════════════════════════════╗
@@ -795,7 +789,7 @@ function createNewNftAuction(
 
     /*╔══════════════════════════════╗
       ║            SALES             ║
-      ╚══════════════════════════════╝*/
+      ╚═══════════════════════════════╝*/
 
     /********************************************************************
      * Allows for a standard sale mechanism where the NFT seller can    *
@@ -900,8 +894,8 @@ function createNewNftAuction(
     /**********************************/
 
     /*╔═════════════════════════════╗
-      ║        BID FUNCTIONS        ║
-      ╚═════════════════════════════╝*/
+      ║        BID FUNCTIONS        ��
+      ╚══════════════════════════════╝*/
 
     /********************************************************************
      * Make bids with ETH or an ERC20 Token specified by the NFT seller.*
@@ -984,7 +978,7 @@ function createNewNftAuction(
       ╚══════════════════════════════╝*/
     /**********************************/
 
-    /*╔══════════════════════════════╗
+    /*╔═════════════════════════════╗
       ║       UPDATE AUCTION         ║
       ╚══════════════════════════════╝*/
 
@@ -1071,7 +1065,7 @@ function createNewNftAuction(
     }
 
     /**********************************/
-    /*╔══════════════════════════════╗
+    /*╔═════════════════════════════╗
       ║             END              ║
       ║       RESET FUNCTIONS        ║
       ╚══════════════════════════════╝*/
@@ -1287,7 +1281,7 @@ function createNewNftAuction(
         "Auction is not yet over"
     );
     
-    // Verificar que haya una oferta válida
+    // Verificar que haya una oferta vlida
     require(
         auction.nftHighestBid >= auction.minPrice && 
         auction.nftHighestBidder != address(0),
@@ -1334,13 +1328,13 @@ function createNewNftAuction(
     }
 
     /**********************************/
-    /*╔══════════════════════════════╗
+    /*╔═════════════════════════════╗
       ║             END              ║
       ║      SETTLE & WITHDRAW       ║
       ╚══════════════════════════════╝*/
     /**********************************/
 
-    /*╔══════════════════════════════╗
+    /*╔═══════════���══════════════════╗
       ║       UPDATE AUCTION         ║
       ╚══════════════════════════════╝*/
     function updateWhitelistedBuyer(
@@ -1405,27 +1399,24 @@ function createNewNftAuction(
         }
     }
 
-    function updateBuyNowPrice(
-        address _nftContractAddress,
-        uint256 _tokenId,
-        uint128 _newBuyNowPrice
-    )
-        external
-        onlyNftSeller(_nftContractAddress, _tokenId)
-        priceGreaterThanZero(_newBuyNowPrice)
-        minPriceDoesNotExceedLimit(
-            _newBuyNowPrice,
-            nftContractAuctions[_nftContractAddress][_tokenId].minPrice
-        )
-    {
-        nftContractAuctions[_nftContractAddress][_tokenId]
-            .buyNowPrice = _newBuyNowPrice;
-        emit BuyNowPriceUpdated(_nftContractAddress, _tokenId, _newBuyNowPrice);
-        if (_isBuyNowPriceMet(_nftContractAddress, _tokenId)) {
-            _transferNftToAuctionContract(_nftContractAddress, _tokenId);
-            _transferNftAndPaySeller(_nftContractAddress, _tokenId);
-        }
+  function updateBuyNowPrice(
+    address _nftContractAddress,
+    uint256 _tokenId,
+    uint128 _newBuyNowPrice
+) external onlyNftSeller(_nftContractAddress, _tokenId) {
+    Auction storage auction = nftContractAuctions[_nftContractAddress][_tokenId];
+    
+    // Verificar que el nuevo buyNowPrice es mayor que el minPrice
+    if (_newBuyNowPrice > 0) {
+        require(
+            auction.minPrice * 100 <= _newBuyNowPrice * 80,
+            "MinPrice > 80% of buyNowPrice"
+        );
     }
+    
+    auction.buyNowPrice = _newBuyNowPrice;
+    emit BuyNowPriceUpdated(_nftContractAddress, _tokenId, _newBuyNowPrice);
+}
 
     /*
      * The NFT seller can opt to end an auction by taking the current highest bid.
@@ -1462,27 +1453,19 @@ function createNewNftAuction(
      * If the transfer of a bid has failed, allow the recipient to reclaim their amount later.
      */
     function withdrawAllFailedCredits() external {
-    // Obtener la cantidad de créditos fallidos para el remitente
-    uint256 amount = failedTransferCredits[msg.sender];
-
-    // Verificar que haya créditos para retirar
-    require(amount != 0, "no credits to withdraw");
-
-    // Restablecer los créditos fallidos a cero antes de realizar el retiro
-    failedTransferCredits[msg.sender] = 0;
-
-    // Intentar transferir la cantidad al remitente
-    (bool successfulWithdraw, ) = msg.sender.call{
-        value: amount,
-        gas: 20000
-    }("");
-
-    // Verificar que la transferencia fue exitosa
-    require(successfulWithdraw, "withdraw failed");
-
-    // Emitir el evento de retiro
-    emit Withdrawal(msg.sender, amount);
-}
+        uint256 amount = failedTransferCredits[msg.sender];
+        require(amount > 0, "No credits to withdraw");
+        
+        // Actualizar el balance antes de la transferencia y el evento
+        failedTransferCredits[msg.sender] = 0;
+        
+        // Realizar la transferencia
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "Transfer failed");
+        
+        // Emitir el evento después de una transferencia exitosa
+        emit Withdrawal(msg.sender, amount);
+    }
 
     function getHighestBid(
         address _nftContractAddress,

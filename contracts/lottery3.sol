@@ -7,9 +7,9 @@ import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";  
 import {VRFV2PlusWrapperConsumerBase} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFV2PlusWrapperConsumerBase.sol";  
 import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";  
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";  
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract Lottery is ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl, VRFV2PlusWrapperConsumerBase, ReentrancyGuard {
+contract Lottery2 is ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl, VRFV2PlusWrapperConsumerBase, ReentrancyGuard {
 
     uint256 public constant MAX_TICKETS_PER_PLAYER = 3;
 

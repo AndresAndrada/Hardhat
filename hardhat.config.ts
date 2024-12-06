@@ -1,7 +1,7 @@
 import type { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox-viem";
 import "@nomicfoundation/hardhat-ethers";
 require("@nomicfoundation/hardhat-chai-matchers");
+import "@nomicfoundation/hardhat-toolbox-viem";
 const config: HardhatUserConfig = {
   solidity:{
     version: "0.8.20",
