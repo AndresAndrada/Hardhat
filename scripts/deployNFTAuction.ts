@@ -1,7 +1,7 @@
 import hre from "hardhat";
 
 async function main() {
-  const nftSellerAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+  const nftSellerAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"; // Tu dirección NFT
 
   const nftAuction = await hre.viem.deployContract("NFTAuction", [nftSellerAddress]);
 
