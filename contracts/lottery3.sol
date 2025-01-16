@@ -1,90 +1,56 @@
 // // SPDX-License-Identifier: MIT
 // pragma solidity ^0.8.19;
 
-// import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";  // Import ERC721 standard for NFT token functionality.
-// import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";  // Import ERC721Enumerable for token enumeration.
-// import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";  // Import ERC721URIStorage for token URI management.
-// import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";  // Import AccessControl for role-based permissions.
-// import {VRFV2PlusWrapperConsumerBase} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFV2PlusWrapperConsumerBase.sol";  // Import Chainlink VRF for random number generation.
-// import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";  // Import client library for Chainlink VRF.
-// import "@openzeppelin/contracts/security/ReentrancyGuard.sol";  // Import ReentrancyGuard to prevent reentrancy attacks.
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";  
+import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";  
+import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";  
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";  
+import {VRFV2PlusWrapperConsumerBase} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFV2PlusWrapperConsumerBase.sol";  
+import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";  
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-// contract Lottery is ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl, VRFV2PlusWrapperConsumerBase, ReentrancyGuard {
-    
-//     // Maximum tickets a player can purchase
-//     uint256 public constant MAX_TICKETS_PER_PLAYER = 3;
+contract Lottery2 is ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl, VRFV2PlusWrapperConsumerBase, ReentrancyGuard {
 
-//     // Enum representing the possible states of the lottery
-//     enum LOTTERY_STATE { OPEN, CALCULATING_WINNER, CLOSED }
-//     LOTTERY_STATE public lotteryState;
+    uint256 public constant MAX_TICKETS_PER_PLAYER = 3;
 
-//     // The base URI for the metadata of the tokens
-//     string public baseURI;
+    enum LOTTERY_STATE { OPEN, CALCULATING_WINNER, CLOSED }
+    LOTTERY_STATE public lotteryState;
 
-//     // The ID of the next token to be minted
-//     uint256 public nextTokenId;
+    string public baseURI;
+    uint256 public nextTokenId;
 
-//     // Mapping to track how many tickets each player has purchased
-//     mapping(address => uint256) public playerTickets;
+    mapping(address => uint256) public playerTickets;
+    mapping(uint256 => address) public ticketOwners;
+    mapping(address => uint256) public pendingWithdrawals;
 
-//     // Mapping from ticket ID to the player who owns the ticket
-//     mapping(uint256 => address) public ticketOwners;
+    uint256 public ticketPrice;
+    uint256 public maxTickets;
 
-//     // Mapping to track pending withdrawals for each address
-//     mapping(address => uint256) public pendingWithdrawals;
+    uint32 public callbackGasLimit = 100000;
+    uint16 public requestConfirmations = 3;
+    uint32 public numWords = 1;
 
-//     // The price of a single ticket in wei
-//     uint256 public ticketPrice;
+    address public feeRecipient;
+    uint256 public lastRequestId;
 
-//     // Maximum number of tickets available for sale
-//     uint256 public maxTickets;
+    address public winnerAddress;
+    uint256 public winningTicketId;
 
-//     // Chainlink VRF settings
-//     uint32 public callbackGasLimit = 100000;  // Gas limit for the callback
-//     uint16 public requestConfirmations = 3;  // Number of confirmations required for Chainlink VRF
-//     uint32 public numWords = 1;  // Number of random words to request from VRF
+    event LotteryStarted(address indexed starter);
+    event TicketPurchased(address indexed buyer, uint256 indexed ticketId);
+    event LotteryEnded(address indexed winner, uint256 winningTicketId);
+    event RandomnessRequested(uint256 requestId);
+    event RandomnessFulfilled(uint256 requestId, uint256 randomWord);
+    event Withdrawal(address indexed recipient, uint256 amount);
+    event BaseURIUpdated(string newBaseURI);
 
-//     // Address that will receive the fee
-//     address public feeRecipient;
-
-//     // Track the last random request ID
-//     uint256 public lastRequestId;
-
-//     // Address of the lottery winner
-//     address public winnerAddress;
-
-//     // The ID of the winning ticket
-//     uint256 public winningTicketId;
-
-//     // Event emitted when the lottery is started
-//     event LotteryStarted(address indexed starter);
-
-//     // Event emitted when a ticket is purchased
-//     event TicketPurchased(address indexed buyer, uint256 indexed ticketId);
-
-//     // Event emitted when the lottery ends and a winner is selected
-//     event LotteryEnded(address indexed winner, uint256 winningTicketId);
-
-//     // Event emitted when a randomness request is made
-//     event RandomnessRequested(uint256 requestId);
-
-//     // Event emitted when the randomness is fulfilled
-//     event RandomnessFulfilled(uint256 requestId, uint256 randomWord);
-
-//     // Event emitted when a withdrawal is made
-//     event Withdrawal(address indexed recipient, uint256 amount);
-
-//     // Event emitted when the base URI is updated
-//     event BaseURIUpdated(string newBaseURI);
-
-//     // Constructor to initialize the contract with the provided parameters
-//     constructor(
-//         string memory initialBaseURI,  // Initial base URI for the token metadata
-//         address vrfWrapperAddress,  // The address of the Chainlink VRF wrapper
-//         uint256 _ticketPrice,  // The price of a ticket in wei
-//         uint256 _maxTickets  // Maximum number of tickets that can be sold
-//     ) ERC721("LotteryNFT", "LTNFT") VRFV2PlusWrapperConsumerBase(vrfWrapperAddress) {
-//         require(_maxTickets > 0, "Maximum tickets must be greater than zero");
+    constructor(
+        string memory initialBaseURI,
+        address vrfWrapperAddress,
+        uint256 _ticketPrice,
+        uint256 _maxTickets
+    ) ERC721("LotteryNFT", "LTNFT") VRFV2PlusWrapperConsumerBase(vrfWrapperAddress) {
+        require(_maxTickets > 0, "Maximum tickets must be greater than zero");
 
 //         baseURI = initialBaseURI;
 //         ticketPrice = _ticketPrice;
@@ -94,6 +60,7 @@
 //         winnerAddress = address(0);
 //         winningTicketId = 0;
 
+<<<<<<< HEAD
 //         feeRecipient = msg.sender;  // The deployer of the contract will initially be the fee recipient
 
 //         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);  // Grant the admin role to the deployer
@@ -268,3 +235,175 @@
 //         return super._update(to, tokenId, auth);
 //     }
 // }
+=======
+        feeRecipient = msg.sender;
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        emit LotteryStarted(msg.sender);
+    }
+
+    function setBaseURI(string memory newBaseURI) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(bytes(newBaseURI).length > 0, "Base URI cannot be empty");
+        baseURI = newBaseURI;
+        emit BaseURIUpdated(newBaseURI);
+    }
+
+    function setFeeRecipient(address _feeRecipient) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_feeRecipient != address(0), "Fee recipient cannot be zero address");
+        require(_feeRecipient != feeRecipient, "Fee recipient is already set to this address");
+        feeRecipient = _feeRecipient;
+    }
+
+    function buyTicket(uint256 quantity) external payable nonReentrant {
+        require(lotteryState == LOTTERY_STATE.OPEN, "Lottery is not open");
+        require(quantity > 0, "Quantity must be greater than zero");
+        require(nextTokenId + quantity <= maxTickets, "Maximum ticket limit reached");
+        require(playerTickets[msg.sender] + quantity <= MAX_TICKETS_PER_PLAYER, "Player reached maximum ticket limit");
+        require(msg.value >= quantity * ticketPrice, "Incorrect ETH value sent");
+
+        uint256 excess = msg.value - quantity * ticketPrice;
+        if (excess > 0) {
+            payable(msg.sender).transfer(excess);
+        }
+
+        for (uint256 i = 0; i < quantity; i++) {
+            uint256 tokenId = nextTokenId++;
+            _safeMint(msg.sender, tokenId);
+
+            string memory tokenSpecificURI = string(abi.encodePacked(baseURI, "/", uint256ToString(tokenId)));
+            _setTokenURI(tokenId, tokenSpecificURI);
+
+            ticketOwners[tokenId] = msg.sender;
+            playerTickets[msg.sender]++;
+
+            emit TicketPurchased(msg.sender, tokenId);
+        }
+
+        if (nextTokenId == maxTickets) {
+            lotteryState = LOTTERY_STATE.CALCULATING_WINNER;
+            requestRandomWords();
+        }
+    }
+
+    function requestRandomWords() internal {
+        bytes memory extraArgs = VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({nativePayment: true}));
+        (uint256 requestId, ) = requestRandomnessPayInNative(
+            callbackGasLimit,
+            requestConfirmations,
+            numWords,
+            extraArgs
+        );
+
+        lastRequestId = requestId;
+        emit RandomnessRequested(requestId);
+    }
+
+    function fulfillRandomWords(uint256 _requestId, uint256[] memory _randomWords) internal override nonReentrant {
+        require(_requestId == lastRequestId, "Invalid random request ID");
+        require(lotteryState == LOTTERY_STATE.CALCULATING_WINNER, "Not ready for winner selection");
+        require(_randomWords.length > 0, "No random words provided");
+
+        uint256 winnerIndex = _randomWords[0] % nextTokenId;
+        address winner = ticketOwners[winnerIndex];
+
+        uint256 rewardAmount = address(this).balance;
+        uint256 feeAmount = (rewardAmount * 2) / 100;
+        uint256 netReward = rewardAmount - feeAmount;
+
+        // Transferir automáticamente el premio al ganador
+        (bool successWinner, ) = payable(winner).call{value: netReward}("");
+        require(successWinner, "Transfer to winner failed");
+
+        // Transferir automáticamente la tarifa al feeRecipient
+        (bool successFee, ) = payable(feeRecipient).call{value: feeAmount}("");
+        require(successFee, "Transfer to fee recipient failed");
+
+        winnerAddress = winner;
+        winningTicketId = winnerIndex;
+
+        lotteryState = LOTTERY_STATE.CLOSED;
+
+        emit RandomnessFulfilled(_requestId, _randomWords[0]);
+        emit LotteryEnded(winner, winnerIndex);
+        resetLottery();
+    }
+
+
+    function uint256ToString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) return "0";
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
+    }
+
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
+    }
+
+    function tokenURI(uint256 tokenId)
+        public
+        view
+        virtual
+        override(ERC721, ERC721URIStorage)
+        returns (string memory)
+    {
+        return super.tokenURI(tokenId);
+    }
+
+    function getTicketsSold() external view returns (uint256) {
+        return nextTokenId;
+    }
+
+    function _increaseBalance(address account, uint128 value)
+        internal
+        virtual
+        override(ERC721, ERC721Enumerable)
+    {
+        super._increaseBalance(account, value);
+    }
+
+    function _update(address to, uint256 tokenId, address auth)
+        internal
+        virtual
+        override(ERC721, ERC721Enumerable)
+        returns (address)
+    {
+        return super._update(to, tokenId, auth);
+    }
+
+    function resetLottery() private {
+        require(lotteryState == LOTTERY_STATE.CLOSED, "Lottery must be closed to reset");
+
+        // Eliminar todos los NFTs
+        for (uint256 i = 0; i < nextTokenId; i++) {
+            _burn(i);
+        }
+
+        // Reiniciar variables
+        nextTokenId = 0;
+        winnerAddress = address(0);
+        winningTicketId = 0;
+
+        // Limpiar los mapeos
+        for (uint256 i = 0; i < nextTokenId; i++) {
+            delete ticketOwners[i]; // Limpiar propietarios de tickets
+        }
+        lotteryState = LOTTERY_STATE.OPEN;
+    }
+}
+>>>>>>> 59edf2e37b689e9fbdaa9b5df418ba0285930b8b

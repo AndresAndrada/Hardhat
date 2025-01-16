@@ -42,7 +42,7 @@ contract MyERC721 is
     function safeMint(
         address to,
         string memory uri
-    ) public onlyRole(MINTER_ROLE) {
+    ) public  {
         uint256 tokenId = _nextTokenId++;
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, uri);
