@@ -9,11 +9,7 @@ import {ERC721Pausable} from "@openzeppelin/contracts/token/ERC721/extensions/ER
 import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-/**
- * @title Subscription
- * @dev Contrato para manejar suscripciones múltiples por cada token.
- */
-contract Subscription is
+contract SubscriptionWithoutTransfer is
     ERC721,
     ERC721Enumerable,
     ERC721URIStorage,
@@ -21,20 +17,20 @@ contract Subscription is
     Ownable,
     ERC721Burnable
 {
-    struct LenderParams {
-        uint256 amount; // Costo de cada período de suscripción
-        uint256 billingInterval; // Intervalo de tiempo entre pagos (en segundos, por ejemplo)
-    }
-
-    struct SubscriptionInfo {
-        uint256 nextDueDate; // Siguiente fecha en la que el prestatario debe pagar
-    }
-
     uint256 private _nextTokenId;
 
+    struct LenderParams {
+        uint256 amount;
+        uint256 billingInterval;
+    }
+
+    struct ActiveSubscription {
+        address borrower;
+        uint256 nextDueDate;
+    }
+
     mapping(uint256 => LenderParams) private _tokenLenderParams;
-    mapping(uint256 => mapping(address => SubscriptionInfo))
-        private _subscriptions;
+    mapping(uint256 => ActiveSubscription) private _activeSubscriptions;
 
     constructor(
         address initialOwner
@@ -58,6 +54,7 @@ contract Subscription is
         _setTokenURI(tokenId, uri);
     }
 
+    // Configura los parámetros de préstamo para un token
     function setLenderParams(
         uint256 tokenId,
         uint256 amount,
@@ -67,44 +64,48 @@ contract Subscription is
         _tokenLenderParams[tokenId] = LenderParams(amount, billingInterval);
     }
 
-    function paySubscription(uint256 tokenId) external payable {
+    // Inicia una suscripción asignando un prestatario
+    function lendToBorrower(uint256 tokenId, address borrower) external {
+        require(ownerOf(tokenId) == msg.sender, "Not the token owner");
+        require(
+            _activeSubscriptions[tokenId].borrower == address(0),
+            "Already lent"
+        );
         LenderParams memory params = _tokenLenderParams[tokenId];
         require(
             params.amount > 0 && params.billingInterval > 0,
             "Lender parameters not set"
         );
-
-        address borrower = msg.sender; // El prestatario es quien llama a la función
-        SubscriptionInfo storage sub = _subscriptions[tokenId][borrower];
-
-        require(
-            sub.nextDueDate == 0 || block.timestamp > sub.nextDueDate,
-            "Borrower already has an active subscription"
+        _activeSubscriptions[tokenId] = ActiveSubscription(
+            borrower,
+            block.timestamp + params.billingInterval
         );
+    }
 
+    // Realiza el pago de la suscripción
+    function paySubscription(uint256 tokenId) external payable {
+        ActiveSubscription storage sub = _activeSubscriptions[tokenId];
+        require(sub.borrower == msg.sender, "Not the borrower");
+        LenderParams memory params = _tokenLenderParams[tokenId];
         require(msg.value == params.amount, "Incorrect payment amount");
+        require(block.timestamp <= sub.nextDueDate, "Payment is late");
 
-        // Transfiere el ETH al propietario del token
-        address tokenOwner = ownerOf(tokenId);
-        payable(tokenOwner).transfer(msg.value);
+        address owner = ownerOf(tokenId);
+        payable(owner).transfer(msg.value);
 
-        // Inicia o renueva la suscripción
-        sub.nextDueDate = block.timestamp + params.billingInterval;
+        sub.nextDueDate += params.billingInterval;
     }
 
-    function revokeSubscription(uint256 tokenId, address borrower) external {
+    // Revoca una suscripción inactiva
+    function revokeSubscription(uint256 tokenId) external {
         require(ownerOf(tokenId) == msg.sender, "Not the token owner");
-
-        SubscriptionInfo storage sub = _subscriptions[tokenId][borrower];
-        require(sub.nextDueDate > 0, "No subscription found for borrower");
-        require(
-            block.timestamp > sub.nextDueDate,
-            "Subscription is still active"
-        );
-
-        delete _subscriptions[tokenId][borrower];
+        ActiveSubscription storage sub = _activeSubscriptions[tokenId];
+        require(sub.borrower != address(0), "No active subscription");
+        require(block.timestamp > sub.nextDueDate, "Subscription still active");
+        delete _activeSubscriptions[tokenId];
     }
 
+    // Verifica si la suscripción está activa antes de transferir
     function _update(
         address to,
         uint256 tokenId,
@@ -114,24 +115,31 @@ contract Subscription is
         override(ERC721, ERC721Enumerable, ERC721Pausable)
         returns (address)
     {
+        if (to != address(0)) {
+            ActiveSubscription memory sub = _activeSubscriptions[tokenId];
+            if (sub.nextDueDate > block.timestamp) {
+                revert("Subscription active: cannot transfer");
+            }
+        }
         return super._update(to, tokenId, auth);
     }
 
-    function tokenURI(
-        uint256 tokenId
-    ) public view override(ERC721, ERC721URIStorage) returns (string memory) {
-        SubscriptionInfo storage sub = _subscriptions[tokenId][msg.sender];
-        if (sub.nextDueDate == 0 || block.timestamp > sub.nextDueDate) {
-            revert("Subscription required to access token URI");
-        }
-        return super.tokenURI(tokenId);
-    }
-
+    // Funciones de soporte para interfaces y overrides
     function _increaseBalance(
         address account,
         uint128 value
     ) internal override(ERC721, ERC721Enumerable) {
         super._increaseBalance(account, value);
+    }
+
+    function tokenURI(
+        uint256 tokenId
+    ) public view override(ERC721, ERC721URIStorage) returns (string memory) {
+        ActiveSubscription memory sub = _activeSubscriptions[tokenId];
+        if (sub.borrower != msg.sender || sub.nextDueDate <= block.timestamp) {
+            revert("Subscription required to access token URI");
+        }
+        return super.tokenURI(tokenId);
     }
 
     function supportsInterface(
@@ -145,6 +153,7 @@ contract Subscription is
         return super.supportsInterface(interfaceId);
     }
 
+    // Funciones de consulta
     function getLenderParams(
         uint256 tokenId
     ) external view returns (uint256 amount, uint256 billingInterval) {
@@ -152,10 +161,10 @@ contract Subscription is
         return (params.amount, params.billingInterval);
     }
 
-    function getSubscription(
-        uint256 tokenId,
-        address borrower
-    ) external view returns (uint256 nextDueDate) {
-        return _subscriptions[tokenId][borrower].nextDueDate;
+    function getActiveSubscription(
+        uint256 tokenId
+    ) external view returns (address borrower, uint256 nextDueDate) {
+        ActiveSubscription memory sub = _activeSubscriptions[tokenId];
+        return (sub.borrower, sub.nextDueDate);
     }
 }

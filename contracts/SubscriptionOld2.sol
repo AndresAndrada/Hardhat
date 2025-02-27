@@ -13,7 +13,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * @title Subscription
  * @dev Contrato para manejar suscripciones múltiples por cada token.
  */
-contract Subscription is
+contract SubscriptionOld2 is
     ERC721,
     ERC721Enumerable,
     ERC721URIStorage,
@@ -32,13 +32,19 @@ contract Subscription is
 
     uint256 private _nextTokenId;
 
+    // Parámetros del prestamista para cada token
     mapping(uint256 => LenderParams) private _tokenLenderParams;
+    // Información de suscripción por token y prestatario
     mapping(uint256 => mapping(address => SubscriptionInfo))
         private _subscriptions;
+    // Lista de direcciones que han suscrito (o suscrito por primera vez) cada token
+    mapping(uint256 => address[]) private _tokenSubscribers;
 
     constructor(
         address initialOwner
-    ) ERC721("Subscription", "MTK") Ownable(initialOwner) {}
+    ) ERC721("Subscription", "MTK") Ownable(initialOwner) {
+        // paymentToken = IERC20(_paymentToken); // Inicializar la dirección del token ERC20
+    }
 
     function _baseURI() internal pure override returns (string memory) {
         return "";
@@ -77,12 +83,15 @@ contract Subscription is
         address borrower = msg.sender; // El prestatario es quien llama a la función
         SubscriptionInfo storage sub = _subscriptions[tokenId][borrower];
 
+        // Si es la primera suscripción, se agrega el prestatario a la lista
+        bool isNewSubscription = (sub.nextDueDate == 0);
         require(
-            sub.nextDueDate == 0 || block.timestamp > sub.nextDueDate,
+            isNewSubscription || block.timestamp > sub.nextDueDate,
             "Borrower already has an active subscription"
         );
 
-        require(msg.value == params.amount, "Incorrect payment amount");
+        // Verifica que se haya enviado la cantidad correcta de ETH
+        require(msg.value == params.amount, "Incorrect ETH amount sent");
 
         // Transfiere el ETH al propietario del token
         address tokenOwner = ownerOf(tokenId);
@@ -90,6 +99,9 @@ contract Subscription is
 
         // Inicia o renueva la suscripción
         sub.nextDueDate = block.timestamp + params.billingInterval;
+        if (isNewSubscription) {
+            _tokenSubscribers[tokenId].push(borrower);
+        }
     }
 
     function revokeSubscription(uint256 tokenId, address borrower) external {
@@ -105,6 +117,30 @@ contract Subscription is
         delete _subscriptions[tokenId][borrower];
     }
 
+    /**
+     * @dev Función para obtener todas las suscripciones de un token.
+     * Retorna un arreglo con las direcciones de los prestatarios y otro con sus respectivas fechas de vencimiento.
+     * Desde el front-end se puede filtrar aquellas suscripciones que estén activas.
+     */
+    function getSubscriptions(
+        uint256 tokenId
+    )
+        external
+        view
+        returns (address[] memory borrowers, uint256[] memory nextDueDates)
+    {
+        uint256 totalSubscribers = _tokenSubscribers[tokenId].length;
+        borrowers = new address[](totalSubscribers);
+        nextDueDates = new uint256[](totalSubscribers);
+
+        for (uint256 i = 0; i < totalSubscribers; i++) {
+            address subscriber = _tokenSubscribers[tokenId][i];
+            borrowers[i] = subscriber;
+            nextDueDates[i] = _subscriptions[tokenId][subscriber].nextDueDate;
+        }
+    }
+
+    // Funciones _update y _increaseBalance se mantienen ya que en tu versión eran necesarias
     function _update(
         address to,
         uint256 tokenId,

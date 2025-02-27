@@ -1,114 +1,101 @@
 import { expect } from "chai";
-import { createPublicClient, createWalletClient, http, parseEther, getContractAt } from "viem";
-import { hardhat } from "viem/chains";
-import { deployContract } from "hardhat-deploy-ethers";
-
-import SubscriptionABI from "../artifacts/contracts/Subscription.sol/Subscription.json";
+import { ethers } from "hardhat";
 
 describe("Subscription Contract", function () {
-    let subscription: any;
-    let owner: any, lender: any, borrower: any, other: any;
-    let client: any, walletClient: any;
+  async function deploySubscriptionFixture() {
+    const accounts = await ethers.getSigners();
+    const initialOwner = accounts[0];
+    const SubscriptionFactory = await ethers.getContractFactory("Subscription");
+    const subscription = await SubscriptionFactory.deploy(initialOwner.address);
+    await subscription.waitForDeployment();
+    return { subscription, accounts };
+  }
 
-    beforeEach(async function () {
-        // Obtener cuentas de Hardhat
-        const accounts = await import("hardhat").then((h) => h.ethers.getSigners());
-        [owner, lender, borrower, other] = accounts.map(acc => acc.address);
+  describe("Deployment", function () {
+    it("should set the initial owner", async function () {
+      const { subscription, accounts } = await deploySubscriptionFixture();
+      expect(await subscription.owner()).to.equal(accounts[0].address);
+    });
+  });
 
-        // Configurar el cliente Viem
-        client = createPublicClient({
-            chain: hardhat,
-            transport: http(),
-        });
-
-        walletClient = createWalletClient({
-            chain: hardhat,
-            transport: http(),
-            account: lender,
-        });
-
-        // Desplegar el contrato usando Viem
-        const SubscriptionFactory = await import("hardhat").then((h) => h.ethers.getContractFactory("Subscription"));
-        subscription = await SubscriptionFactory.deploy(owner);
-
-        // Conectar el contrato con Viem
-        subscription = getContractAt({
-            address: subscription.address,
-            abi: SubscriptionABI.abi,
-            publicClient: client,
-            walletClient,
-        });
-
-        // Mint de un token al lender
-        await subscription.write.safeMint([lender, "https://example.com/token-metadata"]);
-
-        // Configuración del préstamo
-        await subscription.write.setLenderParams([0, parseEther("1"), 86400]); // 1 ETH cada 24h
+  describe("Minting and Subscriptions", function () {
+    it("should mint a token and store tokenURI, but tokenURI access requires active subscription", async function () {
+      const { subscription, accounts } = await deploySubscriptionFixture();
+      await subscription.safeMint(accounts[0].address, "ipfs://test");
+      const owner = await subscription.ownerOf(0);
+      expect(owner).to.equal(accounts[0].address);
+      await expect(subscription.tokenURI(0)).to.be.revertedWith("Subscription required to access token URI");
     });
 
-    it("Debe permitir a un usuario mintear un NFT", async function () {
-        const ownerOfToken = await subscription.read.ownerOf([0]);
-        expect(ownerOfToken).to.equal(lender);
+    it("should allow token owner to set lender parameters", async function () {
+      const { subscription, accounts } = await deploySubscriptionFixture();
+      await subscription.safeMint(accounts[0].address, "ipfs://test");
+      const amount = ethers.parseEther("1.0");
+      const billingInterval = 3600;
+      await subscription.setLenderParams(0, amount, billingInterval);
+      const params = await subscription.getLenderParams(0);
+      expect(params.amount).to.equal(amount);
+      expect(params.billingInterval).to.equal(billingInterval);
     });
 
-    it("Debe permitir al propietario prestar el NFT a un prestatario", async function () {
-        await subscription.write.lendToBorrower([0, borrower]);
-
-        const [actualBorrower, nextDueDate] = await subscription.read.getActiveSubscription([0]);
-        expect(actualBorrower).to.equal(borrower);
-        expect(Number(nextDueDate)).to.be.greaterThan(0);
+    it("should not allow non-token owner to set lender parameters", async function () {
+      const { subscription, accounts } = await deploySubscriptionFixture();
+      await subscription.safeMint(accounts[0].address, "ipfs://test");
+      const amount = ethers.parseEther("1.0");
+      const billingInterval = 3600;
+      await expect(
+        subscription.connect(accounts[1]).setLenderParams(0, amount, billingInterval)
+      ).to.be.revertedWith("Not the token owner");
     });
 
-    it("Debe permitir a un prestatario pagar la suscripción", async function () {
-        await subscription.write.lendToBorrower([0, borrower]);
-
-        await subscription.write.paySubscription([0], {
-            value: parseEther("1"),
-        });
-
-        const [, nextDueDate] = await subscription.read.getActiveSubscription([0]);
-        expect(Number(nextDueDate)).to.be.greaterThan(0);
+    it("should allow a borrower to pay subscription and access tokenURI", async function () {
+      const { subscription, accounts } = await deploySubscriptionFixture();
+      await subscription.safeMint(accounts[0].address, "ipfs://test");
+      const amount = ethers.parseEther("1.0");
+      const billingInterval = 3600;
+      await subscription.setLenderParams(0, amount, billingInterval);
+      await subscription.connect(accounts[1]).paySubscription(0, { value: amount });
+      const uri = await subscription.connect(accounts[1]).tokenURI(0);
+      expect(uri).to.equal("ipfs://test");
     });
 
-    it("Debe evitar que otro usuario pague la suscripción", async function () {
-        await subscription.write.lendToBorrower([0, borrower]);
-
-        await expect(
-            subscription.write.paySubscription([0], {
-                account: other,
-                value: parseEther("1"),
-            })
-        ).to.be.rejectedWith("Not the borrower");
+    it("should not allow paying subscription with incorrect payment", async function () {
+      const { subscription, accounts } = await deploySubscriptionFixture();
+      await subscription.safeMint(accounts[0].address, "ipfs://test");
+      const amount = ethers.parseEther("1.0");
+      const billingInterval = 3600;
+      await subscription.setLenderParams(0, amount, billingInterval);
+      await expect(
+        subscription.connect(accounts[1]).paySubscription(0, { value: ethers.parseEther("0.5") })
+      ).to.be.revertedWith("Incorrect payment amount");
     });
 
-    it("Debe evitar pagos con monto incorrecto", async function () {
-        await subscription.write.lendToBorrower([0, borrower]);
-
-        await expect(
-            subscription.write.paySubscription([0], {
-                value: parseEther("0.5"),
-            })
-        ).to.be.rejectedWith("Incorrect payment amount");
+    it("should not allow a borrower to pay subscription if already active", async function () {
+      const { subscription, accounts } = await deploySubscriptionFixture();
+      await subscription.safeMint(accounts[0].address, "ipfs://test");
+      const amount = ethers.parseEther("1.0");
+      const billingInterval = 3600;
+      await subscription.setLenderParams(0, amount, billingInterval);
+      await subscription.connect(accounts[1]).paySubscription(0, { value: amount });
+      await expect(
+        subscription.connect(accounts[1]).paySubscription(0, { value: amount })
+      ).to.be.revertedWith("Borrower already has an active subscription");
     });
 
-    it("Debe permitir revocar una suscripción vencida", async function () {
-        await subscription.write.lendToBorrower([0, borrower]);
-
-        // Avanza el tiempo para que la suscripción expire
-        await import("hardhat").then((h) => h.network.provider.send("evm_increaseTime", [86500]));
-        await import("hardhat").then((h) => h.network.provider.send("evm_mine"));
-
-        await subscription.write.revokeSubscription([0]);
-
-        const [actualBorrower] = await subscription.read.getActiveSubscription([0]);
-        expect(actualBorrower).to.equal("0x0000000000000000000000000000000000000000");
+    it("should allow token owner to revoke subscription after expiration", async function () {
+      const { subscription, accounts } = await deploySubscriptionFixture();
+      await subscription.safeMint(accounts[0].address, "ipfs://test");
+      // Set a short billing interval for quick expiration
+      const amount = 1000;
+      const billingInterval = 1;
+      await subscription.setLenderParams(0, amount, billingInterval);
+      await subscription.connect(accounts[1]).paySubscription(0, { value: amount });
+      // Increase EVM time
+      await ethers.provider.send("evm_increaseTime", [2]);
+      await ethers.provider.send("evm_mine", []);
+      await subscription.revokeSubscription(0, accounts[1].address);
+      const nextDueDate = await subscription.getSubscription(0, accounts[1].address);
+      expect(nextDueDate).to.equal(0);
     });
-
-    it("Debe evitar que un prestamista transfiera un NFT con suscripción activa", async function () {
-        await subscription.write.lendToBorrower([0, borrower]);
-
-        await expect(
-            subscription.write.transferFrom([lender, other, 0])
-        ).to.be.rejectedWith("Subscription active: cannot transfer");
-    });
+  });
 });
