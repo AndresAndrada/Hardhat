@@ -147,7 +147,7 @@ contract NFTAuction is Ownable {
     /**********************************/
     /*╔═════════════════════════════╗
       ║          MODIFIERS          ║
-      ╚═════════════════════════════╝*/
+      ╚═════════════���═══════════════╝*/
 
     modifier isAuctionNotStartedByOwner(
         address _nftContractAddress,
@@ -192,12 +192,12 @@ contract NFTAuction is Ownable {
         uint128 _buyNowPrice,
         uint128 _minPrice
     ) {
-        require(
-            _buyNowPrice == 0 ||
-                _getPortionOfBid(_buyNowPrice, maximumMinPricePercentage) >=
-                _minPrice,
-            "MinPrice > 80% of buyNowPrice"
-        );
+        if (_buyNowPrice > 0) {
+            require(
+                _minPrice * 100 <= _buyNowPrice * 80,
+                "MinPrice > 80% of buyNowPrice"
+            );
+        }
         _;
     }
 
@@ -604,7 +604,7 @@ contract NFTAuction is Ownable {
     /*╔══════════════════════════════╗
       ║             END              ║
       ║    DEFAULT GETTER FUNCTIONS  ║
-      ╚══════════════════════════════╝*/
+      ╚════���═════════════════════════╝*/
     /**********************************/
 
     /*╔══════════════════════════════╗
@@ -753,7 +753,7 @@ contract NFTAuction is Ownable {
         address _erc20Token,
         uint128 _minPrice,
         uint128 _buyNowPrice,
-        uint32 _auctionBidPeriod, //this is the time that the auction lasts until another bid occurs
+        uint32 _auctionBidPeriod,
         uint32 _bidIncreasePercentage,
         address[] memory _feeRecipients,
         uint32[] memory _feePercentages
@@ -767,6 +767,12 @@ contract NFTAuction is Ownable {
             .auctionBidPeriod = _auctionBidPeriod;
         nftContractAuctions[_nftContractAddress][_tokenId]
             .bidIncreasePercentage = _bidIncreasePercentage;
+
+        // Establecer el tiempo de finalización de la subasta
+        nftContractAuctions[_nftContractAddress][_tokenId].auctionEnd =
+            uint64(block.timestamp) +
+            _auctionBidPeriod;
+
         _createNewNftAuction(
             _nftContractAddress,
             _tokenId,
@@ -787,7 +793,7 @@ contract NFTAuction is Ownable {
 
     /*╔══════════════════════════════╗
       ║            SALES             ║
-      ╚══════════════════════════════╝*/
+      ╚═══════════════════════════════╝*/
 
     /********************************************************************
      * Allows for a standard sale mechanism where the NFT seller can    *
@@ -892,8 +898,8 @@ contract NFTAuction is Ownable {
     /**********************************/
 
     /*╔═════════════════════════════╗
-      ║        BID FUNCTIONS        ║
-      ╚═════════════════════════════╝*/
+      ║        BID FUNCTIONS        ��
+      ╚══════════════════════════════╝*/
 
     /********************************************************************
      * Make bids with ETH or an ERC20 Token specified by the NFT seller.*
@@ -976,7 +982,7 @@ contract NFTAuction is Ownable {
       ╚══════════════════════════════╝*/
     /**********************************/
 
-    /*╔══════════════════════════════╗
+    /*╔═════════════════════════════╗
       ║       UPDATE AUCTION         ║
       ╚══════════════════════════════╝*/
 
@@ -1066,7 +1072,7 @@ contract NFTAuction is Ownable {
     }
 
     /**********************************/
-    /*╔══════════════════════════════╗
+    /*╔═════════════════════════════╗
       ║             END              ║
       ║       RESET FUNCTIONS        ║
       ╚══════════════════════════════╝*/
@@ -1281,7 +1287,7 @@ contract NFTAuction is Ownable {
             "Auction is not yet over"
         );
 
-        // Verificar que haya una oferta válida
+        // Verificar que haya una oferta vlida
         require(
             auction.nftHighestBid >= auction.minPrice &&
                 auction.nftHighestBidder != address(0),
@@ -1294,6 +1300,21 @@ contract NFTAuction is Ownable {
             _transferNftAndPaySeller(_nftContractAddress, _tokenId);
 
             emit AuctionSettled(_nftContractAddress, _tokenId, msg.sender);
+
+            // Verificar que haya una oferta válida
+            require(
+                auction.nftHighestBid >= auction.minPrice &&
+                    auction.nftHighestBidder != address(0),
+                "No valid bid made"
+            );
+
+            // Solo proceder con la transferencia si el llamante es el vendedor
+            if (msg.sender == auction.nftSeller) {
+                _transferNftToAuctionContract(_nftContractAddress, _tokenId);
+                _transferNftAndPaySeller(_nftContractAddress, _tokenId);
+
+                emit AuctionSettled(_nftContractAddress, _tokenId, msg.sender);
+            }
         }
     }
 
@@ -1330,13 +1351,13 @@ contract NFTAuction is Ownable {
     }
 
     /**********************************/
-    /*╔══════════════════════════════╗
+    /*╔═════════════════════════════╗
       ║             END              ║
       ║      SETTLE & WITHDRAW       ║
       ╚══════════════════════════════╝*/
     /**********************************/
 
-    /*╔══════════════════════════════╗
+    /*╔═══════════���══════════════════╗
       ║       UPDATE AUCTION         ║
       ╚══════════════════════════════╝*/
     function updateWhitelistedBuyer(
@@ -1405,22 +1426,21 @@ contract NFTAuction is Ownable {
         address _nftContractAddress,
         uint256 _tokenId,
         uint128 _newBuyNowPrice
-    )
-        external
-        onlyNftSeller(_nftContractAddress, _tokenId)
-        priceGreaterThanZero(_newBuyNowPrice)
-        minPriceDoesNotExceedLimit(
-            _newBuyNowPrice,
-            nftContractAuctions[_nftContractAddress][_tokenId].minPrice
-        )
-    {
-        nftContractAuctions[_nftContractAddress][_tokenId]
-            .buyNowPrice = _newBuyNowPrice;
-        emit BuyNowPriceUpdated(_nftContractAddress, _tokenId, _newBuyNowPrice);
-        if (_isBuyNowPriceMet(_nftContractAddress, _tokenId)) {
-            _transferNftToAuctionContract(_nftContractAddress, _tokenId);
-            _transferNftAndPaySeller(_nftContractAddress, _tokenId);
+    ) external onlyNftSeller(_nftContractAddress, _tokenId) {
+        Auction storage auction = nftContractAuctions[_nftContractAddress][
+            _tokenId
+        ];
+
+        // Verificar que el nuevo buyNowPrice es mayor que el minPrice
+        if (_newBuyNowPrice > 0) {
+            require(
+                auction.minPrice * 100 <= _newBuyNowPrice * 80,
+                "MinPrice > 80% of buyNowPrice"
+            );
         }
+
+        auction.buyNowPrice = _newBuyNowPrice;
+        emit BuyNowPriceUpdated(_nftContractAddress, _tokenId, _newBuyNowPrice);
     }
 
     /*
@@ -1458,16 +1478,17 @@ contract NFTAuction is Ownable {
      */
     function withdrawAllFailedCredits() external {
         uint256 amount = failedTransferCredits[msg.sender];
+        require(amount > 0, "No credits to withdraw");
 
-        require(amount != 0, "no credits to withdraw");
-
+        // Actualizar el balance antes de la transferencia y el evento
         failedTransferCredits[msg.sender] = 0;
 
-        (bool successfulWithdraw, ) = msg.sender.call{
-            value: amount,
-            gas: 20000
-        }("");
-        require(successfulWithdraw, "withdraw failed");
+        // Realizar la transferencia
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "Transfer failed");
+
+        // Emitir el evento después de una transferencia exitosa
+        emit Withdrawal(msg.sender, amount);
     }
 
     function getHighestBid(

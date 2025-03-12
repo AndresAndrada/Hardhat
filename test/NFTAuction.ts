@@ -375,7 +375,6 @@ it("Should handle concurrent bids correctly", async function () {
         nftAuction.write.withdrawBid([myERC721.address, tokenId], { account: bidder.account.address })
       ).to.be.rejectedWith("Cannot withdraw funds");
     });
-
     it("Should prevent unauthorized bid withdrawals", async function () {
       const { nftAuction, myERC721, myToken, nftSeller, bidder, otherAccount, minter } = await loadFixture(deployContractsFixture);
       const tokenId = 0n;
@@ -505,7 +504,6 @@ it("Should handle concurrent bids correctly", async function () {
     it("Should prevent settling auction with no bids", async function () {
       const { nftAuction, myERC721, nftSeller, minter } = await loadFixture(deployContractsFixture);
       const tokenId = 0n;
-
       // Setup inicial
       const myERC721AsMinter = await hre.viem.getContractAt("MyERC721", myERC721.address, { client: { wallet: minter } });
       await myERC721AsMinter.write.safeMint([nftSeller.account.address, "ipfs://token-uri"]);
@@ -583,5 +581,4 @@ it("Should handle concurrent bids correctly", async function () {
       ).to.be.rejectedWith("Only nft seller");  // Cambiar el mensaje de error esperado
     });
   });
-
 });
