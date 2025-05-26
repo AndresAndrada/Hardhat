@@ -25,9 +25,9 @@ const config: HardhatUserConfig = {
       chainId: 8453
     },
     dazlabs: {
-      url: "http://192.168.1.12:8545",
-      accounts: [`ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`],
-      chainId: 31337
+      url: "http://192.168.50.59:8545/",
+      accounts: [`0xb5b435c748a855624f8585ee48ccc530456984d52de0d787e43a83cbeb06dde9`],
+      chainId: 1337
     },
   },
 };
