@@ -9,7 +9,7 @@ import {ERC721Pausable} from "@openzeppelin/contracts/token/ERC721/extensions/ER
 import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract ERC721Free is
+contract ERC721FREE is
     ERC721,
     ERC721Enumerable,
     ERC721URIStorage,
@@ -21,7 +21,7 @@ contract ERC721Free is
 
     constructor(
         address initialOwner
-    ) ERC721("NFTFREE", "MTK") Ownable(initialOwner) {}
+    ) ERC721("ERC721FREE", "NFT") Ownable(initialOwner) {}
 
     function pause() public onlyOwner {
         _pause();
