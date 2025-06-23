@@ -4,7 +4,7 @@ const KoolinartModule = buildModule("KoolinartModule", (m) => {
 //   const defaultAdmin = m.getParameter("defaultAdmin");
 //   const pauser = m.getParameter("pauser");
 //   const minter = m.getParameter("minter");
-const nftSellerAddress = "0x634C9885b1B5896D75d3591b41Ea3164c1048a92";
+const nftSellerAddress = "0xf7BEE672c8152fc86A9EA01080FBAc07831d13d3";
 
 
 const defaultAdmin = nftSellerAddress
